@@ -1,2 +1,2 @@
 # terraform-bootstrap-pipelineslines
-it contains bootstraps pipelines for terraform
+it contains pipelines to setup a whole configuration using bootstraps
