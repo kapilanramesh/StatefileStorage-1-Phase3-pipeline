@@ -2,8 +2,7 @@ pipeline {
     agent any
 
     environment {
-        // Ensure Ansible uses our config
-        ANSIBLE_CONFIG = "${WORKSPACE}/ansible.cfg"
+        ANSIBLE_HOST_KEY_CHECKING = "False"
     }
 
     stages {
@@ -15,17 +14,23 @@ pipeline {
 
         stage('Clone Terraform Repo') {
             steps {
-                git(
-                    url: 'git@github.com:kapilanramesh/terraform-bootstraps-Proj-2.git',
-                    branch: 'main',
-                    credentialsId: 'jenkins-ssh-key'
-                )
+                git credentialsId: 'jenkins-ssh-key', url: 'git@github.com:kapilanramesh/terraform-bootstraps-Proj-2.git'
             }
         }
 
-        stage('Ansible Provisioning') {
+        stage('Ansible Provisioning (via Docker)') {
             steps {
-                sh 'ansible-playbook -i inventory.ini playbook.yml'
+                script {
+                    // Pull and run Ansible in Docker
+                    sh '''
+                    docker run --rm \
+                        -v $PWD:/ansible \
+                        -v /var/lib/jenkins/.ssh:/root/.ssh \
+                        -w /ansible \
+                        williamyeh/ansible:alpine3 \
+                        ansible-playbook -i inventory.ini playbook.yml
+                    '''
+                }
             }
         }
     }
