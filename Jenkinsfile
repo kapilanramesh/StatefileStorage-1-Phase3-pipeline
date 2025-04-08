@@ -2,7 +2,11 @@ pipeline {
     agent any
 
     environment {
-        TF_VAR_public_key = credentials('jenkins-ssh-key')
+        TF_VAR_region = 'ap-south-1'
+    }
+
+    options {
+        skipDefaultCheckout(true) // prevent auto-checkout to allow manual workspace control
     }
 
     stages {
@@ -12,17 +16,23 @@ pipeline {
             }
         }
 
-        stage('Clone Terraform Configuration') {
+        stage('Checkout Pipeline Repo') {
+            steps {
+                git url: 'https://github.com/kapilanramesh/Jenkins-pipelines', branch: 'main'
+            }
+        }
+
+        stage('Clone Terraform Repo') {
             steps {
                 sh '''
-                    git clone https://github.com/kapilanramesh/terraform-bootstraps-Proj-2 terraform-config
+                    git clone https://github.com/your-username/terraform-bootstraps-Proj-2.git
                 '''
             }
         }
 
         stage('Terraform Init') {
             steps {
-                dir('terraform-config') {
+                dir('terraform-bootstraps-Proj-2') {
                     sh 'terraform init'
                 }
             }
@@ -30,27 +40,30 @@ pipeline {
 
         stage('Terraform Apply') {
             steps {
-                dir('terraform-config') {
+                dir('terraform-bootstraps-Proj-2') {
                     sh 'terraform apply -auto-approve'
                 }
             }
         }
 
-        stage('Generate Ansible Inventory') {
+        stage('Ansible Provisioning') {
             steps {
                 sh '''
-                    echo "[web]" > inventory
-                    terraform -chdir=terraform-config output -raw public_ip >> inventory
+                    ansible-playbook -i inventory.ini playbooks/setup-nginx.yml
                 '''
             }
         }
+    }
 
-        stage('Configure NGINX with Ansible') {
-            steps {
-                sh '''
-                    ansible-playbook -i inventory playbook.yml
-                '''
-            }
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo '✅ Provisioning complete!'
+        }
+        failure {
+            echo '❌ Something went wrong.'
         }
     }
 }
