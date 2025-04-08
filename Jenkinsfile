@@ -6,9 +6,11 @@ pipeline {
   }
 
   stages {
+
     stage('Clone Terraform Configuration') {
       steps {
-        sh 'git clone https://github.com/kapilanramesh/terraform-bootstraps-Proj-2'
+        // Clone the actual Terraform repository into terraform-config directory
+        sh 'git clone https://github.com/kapilanramesh/terraform-bootstraps-Proj-2 terraform-config'
       }
     }
 
@@ -32,7 +34,6 @@ pipeline {
       steps {
         dir('terraform-config') {
           sh '''
-            mkdir -p ../ansible
             echo "[webserver]" > ../ansible/hosts.ini
             echo "$(terraform output -raw public_ip) ansible_user=ubuntu ansible_ssh_private_key_file=/var/lib/jenkins/.ssh/id_rsa" >> ../ansible/hosts.ini
           '''
