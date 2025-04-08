@@ -2,12 +2,11 @@ pipeline {
     agent any
 
     environment {
-        // Add Ansible's path for Jenkins to find it
-        PATH = "/var/lib/jenkins/.local/bin:$PATH"
+        // Ensure Ansible uses our config
+        ANSIBLE_CONFIG = "${WORKSPACE}/ansible.cfg"
     }
 
     stages {
-
         stage('Clean Workspace') {
             steps {
                 cleanWs()
@@ -26,9 +25,7 @@ pipeline {
 
         stage('Ansible Provisioning') {
             steps {
-                sh '''
-                    /var/lib/jenkins/.local/bin/ansible-playbook -i inventory.ini playbook.yml
-                '''
+                sh 'ansible-playbook -i inventory.ini playbook.yml'
             }
         }
     }
