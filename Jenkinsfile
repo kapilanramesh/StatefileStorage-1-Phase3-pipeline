@@ -8,16 +8,22 @@ pipeline {
   }
 
   stages {
-    stage('Checkout') {
+    stage('Checkout Infra Code') {
       steps {
-        git 'https://github.com/kapilanramesh/terraform-bootstrap-codes.git'
+        git 'https://github.com/your-username/my-infra-project.git'
       }
     }
 
-    stage('Terraform Init & Apply') {
+    stage('Terraform Init') {
       steps {
         sh 'terraform init'
-        sh 'terraform apply -auto-approve'
+      }
+    }
+
+    stage('Terraform Plan & Apply') {
+      steps {
+        sh 'terraform plan -var-file="terraform.tfvars"'
+        sh 'terraform apply -auto-approve -var-file="terraform.tfvars"'
       }
     }
   }
