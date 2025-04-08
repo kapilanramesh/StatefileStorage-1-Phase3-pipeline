@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        TF_REPO = "https://github.com/your-username/terraform-bootstraps-Proj-2.git"
+        ANSIBLE_HOST_KEY_CHECKING = 'False'
     }
 
     stages {
@@ -14,7 +14,9 @@ pipeline {
 
         stage('Clone Terraform Repo') {
             steps {
-                git url: "${env.TF_REPO}", branch: 'main'
+                git credentialsId: 'jenkins-ssh-key',
+                    url: 'git@github.com:kapilanramesh/terraform-bootstraps-Proj-2.git',
+                    branch: 'main'
             }
         }
 
