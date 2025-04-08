@@ -3,7 +3,6 @@ pipeline {
 
     environment {
         TF_REPO = 'git@github.com:kapilanramesh/terraform-bootstraps-Proj-2.git'
-        TF_BRANCH = 'main'
     }
 
     stages {
@@ -15,7 +14,9 @@ pipeline {
 
         stage('Clone Terraform Repo') {
             steps {
-                git branch: "${env.TF_BRANCH}", credentialsId: 'jenkins-ssh-key', url: "${env.TF_REPO}"
+                git credentialsId: 'jenkins-ssh-key',
+                    url: "${TF_REPO}",
+                    branch: 'main'
             }
         }
 
@@ -23,8 +24,12 @@ pipeline {
             steps {
                 script {
                     sh '''
-                    docker run --rm -v $PWD:/ansible -w /ansible williamyeh/ansible:alpine3 \
-                    ansible-playbook -i inventory.ini playbook.yml
+                        docker run --rm \
+                          -v /var/lib/jenkins/workspace/complete-setup:/ansible \
+                          -v /var/lib/jenkins/jenkins-key.pem:/ansible/jenkins-key.pem \
+                          -w /ansible \
+                          williamyeh/ansible:alpine3 \
+                          ansible-playbook -i inventory.ini playbook.yml
                     '''
                 }
             }
