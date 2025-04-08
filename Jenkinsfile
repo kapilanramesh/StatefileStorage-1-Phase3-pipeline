@@ -2,10 +2,12 @@ pipeline {
     agent any
 
     environment {
-        ANSIBLE_HOST_KEY_CHECKING = 'False'
+        // Add Ansible's path for Jenkins to find it
+        PATH = "/var/lib/jenkins/.local/bin:$PATH"
     }
 
     stages {
+
         stage('Clean Workspace') {
             steps {
                 cleanWs()
@@ -14,16 +16,18 @@ pipeline {
 
         stage('Clone Terraform Repo') {
             steps {
-                git credentialsId: 'jenkins-ssh-key',
+                git(
                     url: 'git@github.com:kapilanramesh/terraform-bootstraps-Proj-2.git',
-                    branch: 'main'
+                    branch: 'main',
+                    credentialsId: 'jenkins-ssh-key'
+                )
             }
         }
 
         stage('Ansible Provisioning') {
             steps {
                 sh '''
-                    ansible-playbook -i inventory.ini playbook.yml
+                    /var/lib/jenkins/.local/bin/ansible-playbook -i inventory.ini playbook.yml
                 '''
             }
         }
