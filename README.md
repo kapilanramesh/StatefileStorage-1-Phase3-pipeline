@@ -1,4 +1,3 @@
-Thanks Kapilan! I’ve reviewed the 4 files from your **third repository**. Here’s a complete, clear, and beginner-friendly **README.md** for it, explaining each component and how everything fits together:
 
 ---
 
