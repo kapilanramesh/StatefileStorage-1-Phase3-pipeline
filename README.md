@@ -1,152 +1,205 @@
+# ✅ **CI/CD Web Server Provisioning using Jenkins, Ansible, Terraform (Dockerized)**
+
+## 📄 **Overview**
+
+This project automates the provisioning of an EC2 web server on AWS using **Terraform** for infrastructure, **Ansible** for configuration, and **Jenkins** for CI/CD pipeline execution using Docker.
 
 ---
 
-## 📦 Project: Jenkins + Ansible Web Server Provisioning
+## 🧱 **Technology Stack**
 
-This project demonstrates a basic DevOps pipeline where a Jenkins pipeline is used to:
-
-1. Clone a Terraform repository (can be extended for infrastructure setup)
-2. Use **Ansible inside a Docker container** to provision a web server on a remote machine (like an EC2 instance)
+- **Terraform** – Creates EC2 instance & networking
+- **Ansible** – Installs NGINX & configures web server
+- **Jenkins** – Automates the whole process
+- **Docker** – Runs Ansible inside a container
 
 ---
 
-## 📁 Files in This Repository
+## 📁 **File Summary**
 
-### 1. `inventory.ini`
-Defines the remote server(s) where Ansible will run the playbook.
+| File Name              | Purpose |
+|------------------------|---------|
+| `Jenkinsfile`          | Jenkins pipeline script for full automation |
+| `inventory.ini`        | Lists target server IP and SSH access |
+| `playbook.yml`         | Ansible playbook to configure the EC2 instance |
+| `ansible.cfg`          | Tells Ansible which inventory file to use |
+
+---
+
+## 🔧 **Detailed Breakdown**
+
+### 🔹 1. `Jenkinsfile` – Jenkins Pipeline
+
+```groovy
+pipeline {
+    agent any
+```
+➡ Tells Jenkins to run this pipeline on any available agent (worker machine).
+
+```groovy
+    environment {
+        TF_REPO = 'git@github.com:kapilanramesh/terraform-bootstraps-Proj-2.git'
+    }
+```
+➡ Declares a variable pointing to your Terraform repo (used in the clone stage).
+
+---
+
+#### ✅ Stage 1 – Clean Jenkins Workspace
+```groovy
+stage('Clean Workspace') {
+    steps {
+        cleanWs()
+    }
+}
+```
+➡ Deletes all previous files from the Jenkins workspace to avoid conflicts.
+
+---
+
+#### ✅ Stage 2 – Clone Terraform Repository
+```groovy
+stage('Clone Terraform Repo') {
+    steps {
+        git credentialsId: 'jenkins-ssh-key',
+            url: "${TF_REPO}",
+            branch: 'main'
+    }
+}
+```
+➡ Clones the Terraform project from GitHub using the provided SSH key (`jenkins-ssh-key`).
+
+---
+
+#### ✅ Stage 3 – Run Ansible via Docker
+```groovy
+stage('Ansible Provisioning (via Docker)') {
+    steps {
+        script {
+            sh '''
+                docker run --rm \
+                  -v /var/lib/jenkins/workspace/complete-setup:/ansible \
+                  -v /var/lib/jenkins/jenkins-key.pem:/ansible/jenkins-key.pem \
+                  -w /ansible \
+                  williamyeh/ansible:alpine3 \
+                  ansible-playbook -i inventory.ini playbook.yml
+            '''
+        }
+    }
+}
+```
+
+- ✅ Launches an **Ansible container** using the lightweight `williamyeh/ansible:alpine3` image.
+- ✅ Mounts:
+  - Jenkins workspace as working directory.
+  - SSH private key (`jenkins-key.pem`) to connect to EC2.
+- ✅ Runs `ansible-playbook` using:
+  - `inventory.ini` → defines the EC2 target
+  - `playbook.yml` → contains all server setup tasks
+
+---
+
+### 🔹 2. `inventory.ini` – Server Info
 
 ```ini
 [web]
 65.0.6.230 ansible_user=ubuntu ansible_ssh_private_key_file=jenkins-key.pem
 ```
 
-- **65.0.6.230**: IP address of the target server (e.g., AWS EC2 instance)
-- **ansible_user=ubuntu**: SSH login user
-- **ansible_ssh_private_key_file**: Path to the private key used to SSH into the server. In this case, it's `jenkins-key.pem`, which is expected to be available in the Jenkins server.
+➡ Defines the **target server** under the `web` group:
+- IP: `65.0.6.230`
+- SSH username: `ubuntu` (standard for Ubuntu EC2)
+- SSH key: `jenkins-key.pem` (must exist in Jenkins workspace)
 
 ---
 
-### 2. `playbook.yml`
-Ansible playbook to provision a web server.
+### 🔹 3. `ansible.cfg` – Ansible Config
+
+```ini
+[defaults]
+inventory = inventory.ini
+host_key_checking = False
+```
+
+➡ Tells Ansible:
+- Use `inventory.ini` file as host list
+- Disable host key checking to avoid prompt during first SSH (safer in CI/CD)
+
+---
+
+### 🔹 4. `playbook.yml` – Provisioning Logic
 
 ```yaml
 - name: Provision web server
   hosts: web
   become: yes
   tasks:
-    - name: Update APT cache
-      apt:
-        update_cache: yes
-
-    - name: Install NGINX
-      apt:
-        name: nginx
-        state: present
-
-    - name: Start NGINX service
-      service:
-        name: nginx
-        state: started
-        enabled: yes
-
-    - name: Create index.html
-      copy:
-        dest: /var/www/html/index.html
-        content: "<h1>Welcome to the Web Server provisioned by Ansible!</h1>"
 ```
-
-🛠️ What this playbook does:
-- Updates the package index on the server
-- Installs **NGINX**
-- Ensures NGINX is running and enabled on boot
-- Creates a simple `index.html` landing page
+➡ Runs tasks on `web` group using **sudo** (`become: yes`)
 
 ---
 
-### 3. `Jenkinsfile.txt`
-This defines a Jenkins Pipeline to automate the provisioning process.
-
-#### 📌 Stages:
-
-```groovy
-pipeline {
-    agent any
-
-    environment {
-        TF_REPO = 'git@github.com:kapilanramesh/terraform-bootstraps-Proj-2.git'
-    }
-
-    stages {
-        stage('Clean Workspace') {
-            steps {
-                cleanWs()
-            }
-        }
-
-        stage('Clone Terraform Repo') {
-            steps {
-                git credentialsId: 'jenkins-ssh-key',
-                    url: "${TF_REPO}",
-                    branch: 'main'
-            }
-        }
-
-        stage('Ansible Provisioning (via Docker)') {
-            steps {
-                script {
-                    sh '''
-                        docker run --rm \
-                          -v /var/lib/jenkins/workspace/complete-setup:/ansible \
-                          -v /var/lib/jenkins/jenkins-key.pem:/ansible/jenkins-key.pem \
-                          -w /ansible \
-                          williamyeh/ansible:alpine3 \
-                          ansible-playbook -i inventory.ini playbook.yml
-                    '''
-                }
-            }
-        }
-    }
-}
+#### ✅ Task 1: Update Ubuntu
+```yaml
+- name: Update APT cache
+  apt:
+    update_cache: yes
 ```
-
-#### 🔍 Breakdown:
-- **TF_REPO**: Holds the Terraform Git repository URL. (Terraform part not used directly here but ready to integrate)
-- **Clean Workspace**: Deletes old files from the Jenkins job workspace
-- **Clone Terraform Repo**: Clones the Terraform repo using an SSH key stored in Jenkins credentials
-- **Ansible Provisioning**: 
-  - Runs Ansible from a Docker container (`williamyeh/ansible:alpine3`)
-  - Mounts Jenkins workspace and SSH key into Docker
-  - Executes the playbook using the `inventory.ini` file
+➡ Runs `sudo apt update` – updates package list
 
 ---
 
-## 🔧 Prerequisites
-
-- Jenkins server with Docker installed
-- Jenkins credential with ID `jenkins-ssh-key` (SSH private key)
-- Remote server (e.g., EC2) with:
-  - Public IP
-  - SSH access with the private key
-- Ansible-compatible OS on the remote (like Ubuntu)
-
----
-
-## 🚀 How to Use
-
-1. Upload the contents of this repo into a Jenkins job workspace.
-2. Ensure `jenkins-key.pem` exists in `/var/lib/jenkins/`.
-3. Add your SSH private key in Jenkins > Manage Credentials with ID `jenkins-ssh-key`.
-4. Run the Jenkins job.
-5. Access the web server via browser:  
-   `http://65.0.6.230`
+#### ✅ Task 2: Install NGINX
+```yaml
+- name: Install NGINX
+  apt:
+    name: nginx
+    state: present
+```
+➡ Installs the latest version of **NGINX web server**
 
 ---
 
-## 📌 Notes
-
-- You can extend the pipeline to run **Terraform** commands in earlier stages.
-- Using Dockerized Ansible ensures no dependency issues on the Jenkins host.
-- This is ideal for learning Jenkins + Ansible + Docker integration.
+#### ✅ Task 3: Start NGINX
+```yaml
+- name: Start NGINX service
+  service:
+    name: nginx
+    state: started
+    enabled: yes
+```
+➡ Starts and enables NGINX so it runs even after reboot
 
 ---
 
+#### ✅ Task 4: Add a Custom Homepage
+```yaml
+- name: Create index.html
+  copy:
+    dest: /var/www/html/index.html
+    content: "<h1>Welcome to the Web Server provisioned by Ansible!</h1>"
+```
+➡ Replaces default page with your **custom welcome message**
+
+---
+
+## 🚀 **How the Entire Flow Works**
+
+1. **Terraform** provisions the EC2 instance.
+2. **Jenkins** clones the Terraform repo and triggers provisioning.
+3. **Ansible** (inside Docker) connects to EC2 and:
+   - Installs NGINX
+   - Sets up homepage
+4. Access your website at:  
+   `http://<EC2 Public IP>` → You'll see your custom message!
+
+---
+
+## ✅ **Best Practices Followed**
+
+- SSH key secured using Jenkins credentials
+- Docker isolates Ansible environment
+- CI/CD fully automated using Jenkinsfile
+- Custom index.html to verify server provisioning success
+
+---
