@@ -30,176 +30,160 @@ This project automates the provisioning of an EC2 web server on AWS using **Terr
 
 ### 🔹 1. `Jenkinsfile` – Jenkins Pipeline
 
-```groovy
-pipeline {
-    agent any
-```
-➡ Tells Jenkins to run this pipeline on any available agent (worker machine).
-
-```groovy
-    environment {
-        TF_REPO = 'git@github.com:kapilanramesh/terraform-bootstraps-Proj-2.git'
-    }
-```
-➡ Declares a variable pointing to your Terraform repo (used in the clone stage).
+Perfect 👍 let’s walk **step by step from `Terraform Init & Apply`** in your Jenkinsfile.
 
 ---
 
-#### ✅ Stage 1 – Clean Jenkins Workspace
+### 🔹 Stage: **Terraform Init & Apply**
+
 ```groovy
-stage('Clean Workspace') {
+stage('Terraform Init & Apply') {
     steps {
-        cleanWs()
-    }
-}
-```
-➡ Deletes all previous files from the Jenkins workspace to avoid conflicts.
-
----
-
-#### ✅ Stage 2 – Clone Terraform Repository
-```groovy
-stage('Clone Terraform Repo') {
-    steps {
-        git credentialsId: 'jenkins-ssh-key',
-            url: "${TF_REPO}",
-            branch: 'main'
-    }
-}
-```
-➡ Clones the Terraform project from GitHub using the provided SSH key (`jenkins-ssh-key`).
-
----
-
-#### ✅ Stage 3 – Run Ansible via Docker
-```groovy
-stage('Ansible Provisioning (via Docker)') {
-    steps {
-        script {
-            sh '''
-                docker run --rm \
-                  -v /var/lib/jenkins/workspace/complete-setup:/ansible \
-                  -v /var/lib/jenkins/jenkins-key.pem:/ansible/jenkins-key.pem \
-                  -w /ansible \
-                  williamyeh/ansible:alpine3 \
-                  ansible-playbook -i inventory.ini playbook.yml
-            '''
+        dir('terraform') {   // adjust if your tf files are at root
+            sh 'terraform init -input=false'
+            sh 'terraform apply -auto-approve -input=false'
+            // Save EC2 public IP to a file
+            sh 'terraform output -raw instance_public_ip > ../ec2_ip.txt'
         }
     }
 }
 ```
 
-- ✅ Launches an **Ansible container** using the lightweight `williamyeh/ansible:alpine3` image.
-- ✅ Mounts:
-  - Jenkins workspace as working directory.
-  - SSH private key (`jenkins-key.pem`) to connect to EC2.
-- ✅ Runs `ansible-playbook` using:
-  - `inventory.ini` → defines the EC2 target
-  - `playbook.yml` → contains all server setup tasks
+#### What happens here:
+
+1. **`dir('terraform')`**
+
+   * Tells Jenkins to change working directory into a folder called `terraform`.
+   * You must have your `.tf` files inside this folder (or else adjust/remove it).
+
+2. **`terraform init -input=false`**
+
+   * Initializes Terraform working directory.
+   * Downloads AWS provider plugin + sets up backend (S3/DynamoDB if configured).
+   * `-input=false` ensures it won’t ask interactive questions (important for automation).
+
+3. **`terraform apply -auto-approve -input=false`**
+
+   * Creates your infra (VPC, EC2, etc).
+   * `-auto-approve` skips manual confirmation.
+   * After this, your new EC2 instance is provisioned.
+
+4. **`terraform output -raw instance_public_ip > ../ec2_ip.txt`**
+
+   * Reads Terraform **output variable** named `instance_public_ip`.
+   * `-raw` removes quotes/newlines.
+   * Redirects it into a file (`ec2_ip.txt`) one level above current dir.
+   * Now Jenkins has the EC2’s public IP stored locally, which will be used for Ansible.
 
 ---
 
-### 🔹 2. `inventory.ini` – Server Info
+### 🔹 Stage: **Generate Inventory & Inject Key**
 
-```ini
+```groovy
+stage('Generate Inventory & Inject Key') {
+    steps {
+        script {
+            def ec2Ip = readFile('ec2_ip.txt').trim()
+            writeFile file: 'inventory.ini', text: """
 [web]
-65.0.6.230 ansible_user=ubuntu ansible_ssh_private_key_file=jenkins-key.pem
+${ec2Ip} ansible_user=ubuntu ansible_ssh_private_key_file=jenkins-key.pem
+"""
+
+            withCredentials([sshUserPrivateKey(credentialsId: 'jenkins-ssh-key',
+                                              keyFileVariable: 'SSH_KEY_FILE',
+                                              usernameVariable: 'SSH_USER')]) {
+                sh '''
+                  cp $SSH_KEY_FILE ./jenkins-key.pem
+                  chmod 600 ./jenkins-key.pem
+                '''
+            }
+        }
+    }
+}
 ```
 
-➡ Defines the **target server** under the `web` group:
-- IP: `65.0.6.230`
-- SSH username: `ubuntu` (standard for Ubuntu EC2)
-- SSH key: `jenkins-key.pem` (must exist in Jenkins workspace)
+#### What happens here:
+
+1. **Read IP file**
+
+   * Reads the EC2 public IP saved earlier by Terraform.
+   * Example: `54.201.10.123`.
+
+2. **Create `inventory.ini`**
+
+   * Writes Ansible inventory file dynamically:
+
+     ```ini
+     [web]
+     54.201.10.123 ansible_user=ubuntu ansible_ssh_private_key_file=jenkins-key.pem
+     ```
+   * `ubuntu` is the default username for Ubuntu AMIs.
+   * `jenkins-key.pem` will be added in the next step.
+
+3. **Inject Jenkins Credentials**
+
+   * `withCredentials` securely loads the private SSH key stored in Jenkins credentials (`jenkins-ssh-key`).
+   * Copies it to workspace as `jenkins-key.pem`.
+   * Fixes permission (`chmod 600`).
+   * Now Ansible can use it to SSH into EC2.
 
 ---
 
-### 🔹 3. `ansible.cfg` – Ansible Config
+### 🔹 Stage: **Run Ansible via Docker**
 
-```ini
-[defaults]
-inventory = inventory.ini
-host_key_checking = False
+```groovy
+stage('Run Ansible via Docker') {
+    steps {
+        sh '''
+          docker run --rm \
+            -v "$PWD":/ansible \
+            -w /ansible \
+            williamyeh/ansible:alpine3 \
+            ansible-playbook -i inventory.ini playbook.yml
+        '''
+    }
+}
 ```
 
-➡ Tells Ansible:
-- Use `inventory.ini` file as host list
-- Disable host key checking to avoid prompt during first SSH (safer in CI/CD)
+* Runs Ansible inside a temporary Docker container.
+* Mounts your Jenkins workspace (`$PWD`) into `/ansible` inside the container.
+* Executes:
+
+  ```bash
+  ansible-playbook -i inventory.ini playbook.yml
+  ```
+* This connects to the EC2 at the dynamic IP with the injected key.
+* Configures your infra (install software, deploy apps, etc).
 
 ---
 
-### 🔹 4. `playbook.yml` – Provisioning Logic
+✅ So from `Terraform Init & Apply` onwards, the flow is:
 
-```yaml
-- name: Provision web server
-  hosts: web
-  become: yes
-  tasks:
-```
-➡ Runs tasks on `web` group using **sudo** (`become: yes`)
+1. Terraform provisions EC2 → saves public IP.
+2. Jenkins dynamically creates inventory.ini with that IP.
+3. Jenkins securely injects SSH key into workspace.
+4. Ansible (via Docker) uses IP + key to configure EC2.
 
 ---
 
-#### ✅ Task 1: Update Ubuntu
-```yaml
-- name: Update APT cache
-  apt:
-    update_cache: yes
-```
-➡ Runs `sudo apt update` – updates package list
+# ADDITIONAL INFO :
 
----
+🔹 The -v "$PWD":/ansible part
 
-#### ✅ Task 2: Install NGINX
-```yaml
-- name: Install NGINX
-  apt:
-    name: nginx
-    state: present
-```
-➡ Installs the latest version of **NGINX web server**
+-v in Docker means mount (share) a folder from host → into container.
 
----
+$PWD = current directory on Jenkins workspace (the job folder where your code/terraform/inventory is).
 
-#### ✅ Task 3: Start NGINX
-```yaml
-- name: Start NGINX service
-  service:
-    name: nginx
-    state: started
-    enabled: yes
-```
-➡ Starts and enables NGINX so it runs even after reboot
+/ansible = folder inside the container.
 
----
+👉 So this means:
+Everything in your Jenkins job’s workspace (Terraform files, inventory.ini, jenkins-key.pem, playbook.yml, etc) will be visible inside the container under /ansible.
 
-#### ✅ Task 4: Add a Custom Homepage
-```yaml
-- name: Create index.html
-  copy:
-    dest: /var/www/html/index.html
-    content: "<h1>Welcome to the Web Server provisioned by Ansible!</h1>"
-```
-➡ Replaces default page with your **custom welcome message**
+🔹 The -w /ansible part
 
----
+Sets the working directory inside the container to /ansible.
 
-## 🚀 **How the Entire Flow Works**
+So when the container runs ansible-playbook -i inventory.ini playbook.yml,
+it looks in /ansible/inventory.ini and /ansible/playbook.yml (which actually came from Jenkins workspace).
 
-1. **Terraform** provisions the EC2 instance.
-2. **Jenkins** clones the Terraform repo and triggers provisioning.
-3. **Ansible** (inside Docker) connects to EC2 and:
-   - Installs NGINX
-   - Sets up homepage
-4. Access your website at:  
-   `http://<EC2 Public IP>` → You'll see your custom message!
 
----
-
-## ✅ **Best Practices Followed**
-
-- SSH key secured using Jenkins credentials
-- Docker isolates Ansible environment
-- CI/CD fully automated using Jenkinsfile
-- Custom index.html to verify server provisioning success
-
----
