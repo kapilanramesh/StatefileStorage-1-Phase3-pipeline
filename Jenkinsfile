@@ -2,9 +2,10 @@ pipeline {
     agent any
 
     environment {
-        TF_REPO = 'git@github.com:kapilanramesh/terraform-bootstraps-Proj-2.git'
-        ANSIBLE_REPO = 'git@github.com:kapilanramesh/ansible-configs.git'
-        SSH_KEY_ID = 'jenkins-ssh-key'  // stored in Jenkins credentials (type: SSH private key)
+        TF_REPO = 'git@github.com:kapilanramesh/StatefileStorage-1-Phase1.git'       // Terraform for Phase 1
+        TF_REPO_PHASE2 = 'git@github.com:kapilanramesh/StatefileStorage-1-Phase2.git' // Terraform for Phase 2 + Ansible configs
+        TF_REPO_PHASE3 = 'git@github.com:kapilanramesh/StatefileStorage-1-Phase3-pipeline.git' // Pipeline repo if needed
+        SSH_KEY_ID = 'jenkins-ssh-key'  // Jenkins credential (SSH private key)
     }
 
     stages {
@@ -16,7 +17,7 @@ pipeline {
 
         stage('Clone Terraform Repo') {
             steps {
-                git credentialsId: 'jenkins-ssh-key',
+                git credentialsId: "${SSH_KEY_ID}",
                     url: "${TF_REPO}",
                     branch: 'main'
             }
@@ -31,20 +32,22 @@ pipeline {
             }
         }
 
-        stage('Get EC2 Public IP') {
+        stage('Get EC2 Public IP & Generate Inventory') {
             steps {
                 script {
-                    def ec2_ip = sh(script: "terraform output -raw ec2_public_ip", returnStdout: true).trim()
+                    def ec2_ip = sh(script: "terraform output -raw instance_public_ip", returnStdout: true).trim()
                     echo "Provisioned EC2 Public IP: ${ec2_ip}"
+
+                    // Generate dynamic inventory for Ansible
                     writeFile file: "inventory.ini", text: "[web]\n${ec2_ip} ansible_user=ubuntu ansible_ssh_private_key_file=/ansible/jenkins-key.pem\n"
                 }
             }
         }
 
-        stage('Clone Ansible Repo') {
+        stage('Clone Ansible Repo (Phase 2)') {
             steps {
-                git credentialsId: 'jenkins-ssh-key',
-                    url: "${ANSIBLE_REPO}",
+                git credentialsId: "${SSH_KEY_ID}",
+                    url: "${TF_REPO_PHASE2}",
                     branch: 'main'
             }
         }
